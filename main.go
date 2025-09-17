@@ -276,16 +276,19 @@ type Config struct {
 }
 
 type Server struct {
-	listener    net.Listener
-	config      *Config
-	activeConns sync.WaitGroup
-	shutdown    chan struct{}
+	listener       net.Listener
+	config         *Config
+	activeConns    sync.WaitGroup
+	shutdown       chan struct{}
+	clientConns    sync.Map // map[net.Conn]bool to track active client connections
+	shutdownSignal chan struct{}
 }
 
 func NewServer(config *Config) *Server {
 	return &Server{
-		config:   config,
-		shutdown: make(chan struct{}),
+		config:         config,
+		shutdown:       make(chan struct{}),
+		shutdownSignal: make(chan struct{}),
 	}
 }
 
@@ -320,7 +323,7 @@ func (s *Server) acceptConnections() {
 			s.activeConns.Add(1)
 			go func() {
 				defer s.activeConns.Done()
-				handleConnection(conn, s.config)
+				handleConnection(conn, s.config, s)
 			}()
 		}
 	}
@@ -335,9 +338,41 @@ func (s *Server) Shutdown() {
 		s.listener.Close()
 	}
 
-	slog.Info("Waiting for active connections to close")
-	s.activeConns.Wait()
-	slog.Info("All connections closed. Server stopped.")
+	// Notify all active clients that server is shutting down
+	slog.Info("Notifying active clients of server shutdown")
+	s.clientConns.Range(func(key, value interface{}) bool {
+		if conn, ok := key.(net.Conn); ok {
+			// Send Redis error response indicating server shutdown
+			sendRedisError(conn, "Server is shutting down")
+			conn.Close()
+		}
+		return true
+	})
+
+	// Wait for connections to close with timeout
+	shutdownTimeout := 10 * time.Second
+	slog.Info("Waiting for active connections to close", "timeout", shutdownTimeout)
+
+	done := make(chan struct{})
+	go func() {
+		s.activeConns.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		slog.Info("All connections closed gracefully. Server stopped.")
+	case <-time.After(shutdownTimeout):
+		slog.Warn("Shutdown timeout reached. Force closing remaining connections.")
+		// Force close any remaining connections
+		s.clientConns.Range(func(key, value interface{}) bool {
+			if conn, ok := key.(net.Conn); ok {
+				conn.Close()
+			}
+			return true
+		})
+		slog.Info("Server stopped (forced shutdown).")
+	}
 }
 
 func parseArgs() *Config {
@@ -547,11 +582,14 @@ func authenticateWithTargetRedis(targetConn net.Conn, username, password string)
 	return nil
 }
 
-func copyData(dst net.Conn, src net.Conn, clientAddr string, direction string) {
+func copyData(dst net.Conn, src net.Conn, clientAddr string, direction string, connectionClosed *bool) {
 	defer func() {
 		dst.Close()
 		src.Close()
-		slog.Info("Connection closed", "client", clientAddr, "direction", direction)
+		if !*connectionClosed {
+			*connectionClosed = true
+			slog.Info("Connection closed", "client", clientAddr, "direction", direction)
+		}
 	}()
 
 	_, err := io.Copy(dst, src)
@@ -564,11 +602,51 @@ func copyData(dst net.Conn, src net.Conn, clientAddr string, direction string) {
 	}
 }
 
-func handleConnection(clientConn net.Conn, config *Config) {
-	clientAddr := clientConn.RemoteAddr().String()
+func copyDataWithShutdown(dst net.Conn, src net.Conn, clientAddr string, direction string, connectionClosed *bool, shutdown chan struct{}) {
 	defer func() {
+		dst.Close()
+		src.Close()
+		if !*connectionClosed {
+			*connectionClosed = true
+			slog.Info("Connection closed", "client", clientAddr, "direction", direction)
+		}
+	}()
+
+	// Use a channel to signal when copy operation is done
+	done := make(chan error, 1)
+	go func() {
+		_, err := io.Copy(dst, src)
+		done <- err
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+				slog.Warn("Connection timed out", "client", clientAddr, "direction", direction)
+			} else {
+				slog.Error("Connection error", "client", clientAddr, "direction", direction, "error", err)
+			}
+		}
+	case <-shutdown:
+		slog.Info("Shutdown signal received, closing connection", "client", clientAddr, "direction", direction)
+		return
+	}
+}
+
+func handleConnection(clientConn net.Conn, config *Config, server *Server) {
+	clientAddr := clientConn.RemoteAddr().String()
+	connectionClosed := false
+
+	// Track this connection
+	server.clientConns.Store(clientConn, true)
+	defer func() {
+		server.clientConns.Delete(clientConn)
 		clientConn.Close()
-		slog.Info("Client disconnected", "client", clientAddr)
+		if !connectionClosed {
+			connectionClosed = true
+			slog.Info("Client disconnected", "client", clientAddr)
+		}
 	}()
 
 	slog.Info("New connection", "client", clientAddr)
@@ -604,9 +682,9 @@ func handleConnection(clientConn net.Conn, config *Config) {
 		}
 	}
 
-	// Start bidirectional data forwarding
-	go copyData(targetConn, clientConn, clientAddr, "client->target")
-	copyData(clientConn, targetConn, clientAddr, "target->client")
+	// Start bidirectional data forwarding with shutdown signal handling
+	go copyDataWithShutdown(targetConn, clientConn, clientAddr, "client->target", &connectionClosed, server.shutdown)
+	copyDataWithShutdown(clientConn, targetConn, clientAddr, "target->client", &connectionClosed, server.shutdown)
 }
 
 func main() {
