@@ -683,8 +683,21 @@ func handleConnection(clientConn net.Conn, config *Config, server *Server) {
 	}
 
 	// Start bidirectional data forwarding with shutdown signal handling
-	go copyDataWithShutdown(targetConn, clientConn, clientAddr, "client->target", &connectionClosed, server.shutdown)
-	copyDataWithShutdown(clientConn, targetConn, clientAddr, "target->client", &connectionClosed, server.shutdown)
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	go func() {
+		defer wg.Done()
+		copyDataWithShutdown(targetConn, clientConn, clientAddr, "client->target", &connectionClosed, server.shutdown)
+	}()
+
+	go func() {
+		defer wg.Done()
+		copyDataWithShutdown(clientConn, targetConn, clientAddr, "target->client", &connectionClosed, server.shutdown)
+	}()
+
+	// Wait for both directions to complete
+	wg.Wait()
 }
 
 func main() {
