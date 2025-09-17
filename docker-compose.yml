@@ -1,0 +1,22 @@
+services:
+  redis-no-auth:
+    image: redis:7-alpine
+    container_name: redis-no-auth
+    ports:
+      - "6379:6379"
+    command: redis-server
+    networks:
+      - redis-network
+
+  redis-with-auth:
+    image: redis:7-alpine
+    container_name: redis-with-auth
+    ports:
+      - "6380:6379"
+    command: redis-server --requirepass secretpassword --appendonly yes
+    networks:
+      - redis-network
+
+networks:
+  redis-network:
+    driver: bridge
