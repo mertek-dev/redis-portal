@@ -4,7 +4,7 @@ A high-performance TCP proxy/bridge application written in Go forwards traffic t
 
 ## Why???
 
-The story is: i ran into a situation that i need to be able to access my redis on my vps from my local machine, which is running using docker. But the issue is that redis container has no password protection, and no port exposed to public.
+The story is: i ran into a situation that i need to be able to access a redis container on a vps from my local machine. But the issue is that redis container has no password protection, and no port exposed to public.
 And i really really don't want to change any config, then restart the container, because it could interupt other services using it.
 So i came up with this stupid idea of creating an app to only serve one single purpose.
 
