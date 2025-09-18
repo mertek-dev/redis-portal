@@ -118,6 +118,39 @@ go build -o redis-portal main.go
 ./redis-portal -t redis:6379 -u admin -p secret123
 ```
 
+## Docker Usage
+
+### Using the Docker Image
+
+You can use the pre-built Docker image `luuhai48/redis-portal` to run the application without building it locally.
+
+#### Basic Usage
+```bash
+# Pull and run the latest version
+docker run -p 8379:8379 --network=your-backend-network luuhai48/redis-portal:latest -target redis:6379
+
+# Or use a specific version
+docker run -p 8379:8379 --network=your-backend-network luuhai48/redis-portal:0.0.1 -target redis:6379
+```
+
+#### With Authentication
+```bash
+# Client authentication only
+docker run -p 8379:8379 --network=your-backend-network luuhai48/redis-portal:latest -target redis:6379 -username admin -password secret123
+
+# Target authentication only
+docker run -p 8379:8379 --network=your-backend-network luuhai48/redis-portal:latest -target redis:6379 -target-password redispass
+
+# Both client and target authentication
+docker run -p 8379:8379 --network=your-backend-network luuhai48/redis-portal:latest -target redis:6379 -username portaluser -password portalpass -target-username redisuser -target-password redispass
+```
+
+#### Custom Listen Port
+```bash
+# Listen on port 3307 instead of default 8379
+docker run -p 3307:3307 --network=your-backend-network luuhai48/redis-portal:latest -target redis:6379 -listen :3307
+```
+
 ## Testing with Redis
 
 ### Using Docker Compose (Recommended)
