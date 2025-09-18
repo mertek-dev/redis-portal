@@ -1,6 +1,12 @@
-# TCP Portal
+# Redis Portal
 
-A high-performance TCP proxy/bridge application written in Go that provides Redis-compatible authentication and forwards traffic to target servers with comprehensive logging and graceful shutdown capabilities.
+A high-performance TCP proxy/bridge application written in Go forwards traffic to target redis server.
+
+## Why???
+
+The story is: i ran into a situation that i need to be able to access my redis on my vps from my local machine, which is running using docker. But the issue is that redis container has no password protection, and no port exposed to public.
+And i really really don't want to change any config, then restart the container, because it could interupt other services using it.
+So i came up with this stupid idea of creating an app to only serve one single purpose.
 
 ## Features
 
@@ -25,7 +31,7 @@ go run main.go -target <target_host:port> [options]
 - `-target, -t`: Target server address (e.g., `redis:6379`, `localhost:3306`)
 
 **Optional Arguments:**
-- `-listen, -l`: Local address to listen on (default: `:8080`)
+- `-listen, -l`: Local address to listen on (default: `:8379`)
 - `-username, -u`: Client authentication username (default: empty)
 - `-password, -p`: Client authentication password (default: random generated)
 - `-target-username, -tu`: Target Redis username for authentication
@@ -97,19 +103,19 @@ The authentication uses Redis-compatible AUTH commands:
 
 ### Build the application
 ```bash
-go build -o tcp-portal main.go
+go build -o redis-portal main.go
 ```
 
 ### Run the binary
 ```bash
 # Basic usage
-./tcp-portal -target redis:6379
+./redis-portal -target redis:6379
 
 # With authentication
-./tcp-portal -target redis:6379 -username admin -password secret123
+./redis-portal -target redis:6379 -username admin -password secret123
 
 # With short flags
-./tcp-portal -t redis:6379 -u admin -p secret123
+./redis-portal -t redis:6379 -u admin -p secret123
 ```
 
 ## Testing with Redis
@@ -136,7 +142,7 @@ go build -o tcp-portal main.go
 3. Connect using redis-cli:
    ```bash
    # Connect to the portal
-   redis-cli -p 8080
+   redis-cli -p 8379
    
    # If client authentication is required
    AUTH mypass
@@ -160,102 +166,10 @@ go build -o tcp-portal main.go
 
 3. Test with redis-cli:
    ```bash
-   redis-cli -p 8080
+   redis-cli -p 8379
    SET test "hello world"
    GET test
    ```
-
-## Enhanced Features
-
-### Structured Logging
-The application provides beautiful, readable logging with:
-- 🚀 Visual separators and emojis for different log types
-- 📋 Clear configuration display
-- 🔐 Authentication status indicators
-- 🌐 Network information with local and external IPs
-- 🔗 Connection tracking and status updates
-
-### Graceful Shutdown
-- Responds to SIGINT (Ctrl+C) and SIGTERM signals
-- Waits for all active connections to close before exiting
-- Proper cleanup of resources
-
-### Docker Support
-- Automatic detection of Docker environment
-- Warnings for problematic configurations (localhost binding in Docker)
-- Port mapping reminders
-
-### Network Discovery
-- Automatic detection of local IP address
-- External IP discovery (with timeout to avoid blocking)
-- Clear display of all access methods
-
-## Security Considerations
-
-- Uses constant-time comparison for password checking to prevent timing attacks
-- Redis-compatible authentication protocol
-- Authentication happens per connection
-- No persistent sessions or tokens
-- Consider using TLS for production environments
-
-## Error Handling
-
-The application handles various error conditions:
-- Authentication failures (both client and target)
-- Target server connection failures
-- Network I/O errors
-- Connection timeouts
-- Protocol errors
-
-All errors are logged with appropriate context and structured information.
-
-## Logging
-
-The application provides comprehensive structured logging including:
-- 🚀 Server startup and configuration
-- 📋 Environment detection and network information
-- 🔐 Authentication attempts and results
-- 🔗 Connection events and status updates
-- ❌ Error conditions with detailed context
-- ⚠️ Warnings for configuration issues
-- ℹ️ General information and status updates
-
-### Log Levels
-- **INFO**: General information, connections, successful operations
-- **WARN**: Configuration warnings, authentication failures
-- **ERROR**: Connection errors, protocol errors, critical failures
-
-## Docker Compose Setup
-
-The project includes a `docker-compose.yml` file with Redis services for testing:
-
-### Services
-- **redis-no-auth** (port 6379): Redis without authentication
-- **redis-with-auth** (port 6380): Redis with password authentication
-
-### Usage
-```bash
-# Start all Redis services
-docker-compose up -d
-
-# Stop all services
-docker-compose down
-
-# View logs
-docker-compose logs
-```
-
-### Testing Different Scenarios
-```bash
-# Test with no authentication
-go run main.go -target localhost:6379
-
-# Test with target password authentication
-go run main.go -target localhost:6380 -target-password secretpassword
-
-# Test with both client and target authentication
-go run main.go -target localhost:6380 -password mypass -target-password secretpassword
-```
 
 ## License
 

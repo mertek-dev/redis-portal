@@ -24,7 +24,6 @@ import (
 var logger *slog.Logger
 
 func init() {
-	// Create a custom handler with better formatting
 	handler := &PrettyHandler{
 		Handler: slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
 			Level: slog.LevelInfo,
@@ -34,16 +33,14 @@ func init() {
 	slog.SetDefault(logger)
 }
 
-// PrettyHandler wraps a slog.Handler to provide better formatting
 type PrettyHandler struct {
 	slog.Handler
 }
 
 func (h *PrettyHandler) Handle(ctx context.Context, r slog.Record) error {
-	// Add visual separators and better formatting
 	switch r.Level {
 	case slog.LevelInfo:
-		if r.Message == "Starting TCP Portal" {
+		if r.Message == "Starting Redis Portal" {
 			fmt.Println("\n" + strings.Repeat("=", 60))
 			fmt.Printf("🚀 %s\n", r.Message)
 			fmt.Println(strings.Repeat("=", 60))
@@ -66,7 +63,6 @@ func (h *PrettyHandler) Handle(ctx context.Context, r slog.Record) error {
 		fmt.Printf("❌ %s\n", r.Message)
 	}
 
-	// Add key-value pairs with better formatting
 	r.Attrs(func(a slog.Attr) bool {
 		if a.Key != "" && a.Value.Kind() != slog.KindAny {
 			fmt.Printf("   %s: %v\n", a.Key, a.Value)
@@ -93,7 +89,6 @@ func isRunningInDocker() bool {
 
 	// Method 3: Check if we're PID 1 (common in containers)
 	if os.Getpid() == 1 {
-		// Additional check: look for container-specific environment
 		if os.Getenv("container") != "" || os.Getenv("KUBERNETES_SERVICE_HOST") != "" {
 			return true
 		}
@@ -220,7 +215,6 @@ func getPublicIP() string {
 		}
 
 		ip := strings.TrimSpace(string(body))
-		// Validate it looks like an IP
 		if net.ParseIP(ip) != nil {
 			return ip
 		}
@@ -230,10 +224,9 @@ func getPublicIP() string {
 }
 
 func displayNetworkInfo(listenAddr string) {
-	// Parse listen address to get port
 	_, port, err := net.SplitHostPort(listenAddr)
 	if err != nil {
-		port = "8080" // default fallback
+		port = "8379"
 	}
 
 	fmt.Printf("Localhost: 127.0.0.1:%s\n", port)
@@ -330,7 +323,7 @@ func (s *Server) acceptConnections() {
 }
 
 func (s *Server) Shutdown() {
-	slog.Info("Shutting down TCP Portal")
+	slog.Info("Shutting down Redis Portal")
 
 	close(s.shutdown)
 
@@ -378,8 +371,8 @@ func (s *Server) Shutdown() {
 func parseArgs() *Config {
 	var config Config
 
-	flag.StringVar(&config.ListenAddr, "listen", ":8080", "Local address to listen on (e.g., :8080)")
-	flag.StringVar(&config.ListenAddr, "l", ":8080", "Local address to listen on (e.g., :8080)")
+	flag.StringVar(&config.ListenAddr, "listen", ":8379", "Local address to listen on (e.g., :8379)")
+	flag.StringVar(&config.ListenAddr, "l", ":8379", "Local address to listen on (e.g., :8379)")
 	flag.StringVar(&config.TargetAddr, "target", "", "Target address to proxy to (e.g., redis:6379)")
 	flag.StringVar(&config.TargetAddr, "t", "", "Target address to proxy to (e.g., redis:6379)")
 	flag.StringVar(&config.Username, "username", "", "Override auth username. Default: ''")
@@ -582,26 +575,6 @@ func authenticateWithTargetRedis(targetConn net.Conn, username, password string)
 	return nil
 }
 
-func copyData(dst net.Conn, src net.Conn, clientAddr string, direction string, connectionClosed *bool) {
-	defer func() {
-		dst.Close()
-		src.Close()
-		if !*connectionClosed {
-			*connectionClosed = true
-			slog.Info("Connection closed", "client", clientAddr, "direction", direction)
-		}
-	}()
-
-	_, err := io.Copy(dst, src)
-	if err != nil {
-		if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
-			slog.Warn("Connection timed out", "client", clientAddr, "direction", direction)
-		} else {
-			slog.Error("Connection error", "client", clientAddr, "direction", direction, "error", err)
-		}
-	}
-}
-
 func copyDataWithShutdown(dst net.Conn, src net.Conn, clientAddr string, direction string, connectionClosed *bool, shutdown chan struct{}) {
 	defer func() {
 		dst.Close()
@@ -703,7 +676,7 @@ func handleConnection(clientConn net.Conn, config *Config, server *Server) {
 func main() {
 	config := parseArgs()
 
-	slog.Info("Starting TCP Portal",
+	slog.Info("Starting Redis Portal",
 		"listen", config.ListenAddr,
 		"target", config.TargetAddr)
 
@@ -735,11 +708,9 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Set up signal handling for graceful shutdown
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
-	// Wait for shutdown signal
 	<-sigChan
 	slog.Info("Received shutdown signal")
 
